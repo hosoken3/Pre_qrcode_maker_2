@@ -1,45 +1,100 @@
-name: Gemini API Agent
+name: Gemini PR Agent
 on:
   issue_comment:
     types: [created]
 
 jobs:
-  gemini-call:
+  create-pr:
     runs-on: ubuntu-latest
     # コメントに「@gemini-cli」が含まれている場合のみ実行
     if: contains(github.event.comment.body, '@gemini-cli')
     permissions:
-      issues: write # Issueへのコメント書き込みに必要
+      issues: write      # Issueへのコメント書き込みに必要
+      contents: write    # ブランチ作成とpushに必要
+      pull-requests: write # プルリクエスト作成に必要
     steps:
-      # ステップ1: curlコマンドで直接GoogleのAIに質問を送り、結果をファイルに保存する
-      - name: Call Gemini API directly
+      # ステップ1: リポジトリをチェックアウト
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ステップ2: AIにコードの生成を依頼し、結果をファイルに保存
+      - name: Call Gemini API for code generation
         run: |
           # Issueのコメント本文をJSON形式に整形する
           PROMPT_ESCAPED=$(echo "${{ github.event.comment.body }}" | jq -R -s '.')
           
+          # AIへの指示に「ファイル名とコードだけを返して」というルールを追加
+          SYSTEM_PROMPT="You are a coding assistant. Based on the user's request, generate only the file content. Your output should start with 'Filename: <filename>' on the first line, followed by the code block. Do not include any other explanations."
+          
           # curlコマンドでAPIを呼び出す
           curl -s "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${{ secrets.GEMINI_API_KEY }}" \
             -H 'Content-Type: application/json' \
-            -d "{ \"contents\":[{\"parts\":[{\"text\": ${PROMPT_ESCAPED}}]}]}" \
+            -d "{ \"system_instruction\": { \"parts\": { \"text\": \"${SYSTEM_PROMPT}\" } }, \"contents\":[{\"parts\":[{\"text\": ${PROMPT_ESCAPED}}]}]}" \
             -o gemini-response.json # 結果をファイルに出力
-      
-      # ステップ2: 以前成功した方法で、AIの返答をIssueにコメントとして投稿する
-      - name: Create comment with Gemini response
+
+      # ステップ3: AIの返答からファイル名とコードを抽出し、ブランチを作成してPush
+      - name: Create branch and push changes
+        id: git_work # このステップの出力を後で使えるようにIDを付与
+        run: |
+          # AIの返答を読み込む
+          RESPONSE=$(cat gemini-response.json)
+          
+          # AIの返答からテキスト部分だけを抜き出す
+          GEMINI_TEXT=$(echo $RESPONSE | jq -r '.candidates[0].content.parts[0].text')
+          
+          # 1行目からファイル名を取得
+          FILENAME=$(echo "$GEMINI_TEXT" | head -n 1 | sed 's/Filename: //')
+          
+          # 2行目以降からコード部分を取得
+          CODE=$(echo "$GEMINI_TEXT" | tail -n +2)
+          
+          # もしファイル名が取得できなかった場合のエラー処理
+          if [ -z "$FILENAME" ]; then
+            echo "エラー：AIの返答からファイル名を取得できませんでした。"
+            echo "AI Response: $GEMINI_TEXT"
+            exit 1
+          fi
+          
+          # 新しいブランチ名を設定
+          BRANCH_NAME="gemini/issue-${{ github.event.issue.number }}-${RANDOM}"
+          
+          # Gitのユーザー情報を設定
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # ブランチを作成して切り替え
+          git checkout -b $BRANCH_NAME
+          
+          # AIが生成したコードでファイルを作成
+          echo "$CODE" > "$FILENAME"
+          
+          # Gitにファイルを追加してコミット、そしてPush
+          git add "$FILENAME"
+          git commit -m "feat: Add $FILENAME based on issue #${{ github.event.issue.number }}"
+          git push origin $BRANCH_NAME
+          
+          # ブランチ名を後続のステップで使えるように出力
+          echo "branch_name=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
+
+      # ステップ4: プルリクエストを作成
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ github.token }} # GitHub CLIのための認証トークン
+        run: |
+          gh pr create \
+            --title "✨ AIによる提案 (Issue #${{ github.event.issue.number }})" \
+            --body "Issue #${{ github.event.issue.number }} のリクエストに基づき、AIが自動でコードを生成しました。" \
+            --base ${{ github.event.repository.default_branch }} \
+            --head ${{ steps.git_work.outputs.branch_name }}
+
+      # ステップ5: Issueにプルリクエストへのリンクをコメント
+      - name: Comment on issue with PR link
         uses: actions/github-script@v7
         with:
           script: |
-            // AIからの返答が書かれたファイルを読み込む
-            const fs = require('fs');
-            const response = JSON.parse(fs.readFileSync('gemini-response.json', 'utf8'));
-            
-            // JSONの中から、AIが生成したテキスト部分だけを取り出す
-            // エラーの場合も考慮
-            const geminiText = response.candidates?.[0]?.content?.parts?.[0]?.text || `エラーが発生しました：\n\`\`\`\n${JSON.stringify(response)}\n\`\`\``;
-
-            // Issueにコメントを投稿する
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: geminiText
+              body: `✅ AIがプルリクエストを作成しました。内容を確認してください。`
             });
