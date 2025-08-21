@@ -4,6 +4,8 @@ on:
     types: [opened, synchronize, reopened]
   issues:
     types: [opened]
+  issue_comment:
+    types: [created]
 
 jobs:
   gemini:
@@ -17,4 +19,5 @@ jobs:
       - uses: google-github-actions/run-gemini-cli@v0
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          workflow: pr-review  # or issue-triage / on-demand
+          workflow: on-demand
+
