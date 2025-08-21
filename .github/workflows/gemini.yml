@@ -4,24 +4,17 @@ on:
     types: [created]
 
 jobs:
-  gemini-test:
+  gemini-prompt-test:
     runs-on: ubuntu-latest
-    # `if` を追加して、コメントに「@gemini-cli」が含まれている場合のみ実行するようにします
     if: contains(github.event.comment.body, '@gemini-cli')
     permissions:
-      contents: read
-      pull-requests: write
-      issues: write
+      issues: write # コメント書き込みに必要な権限
     steps:
-      # 1. ワークフローが実行されたか確認するためのテスト用ステップ
       - name: "Test: Workflow Triggered"
         run: echo "✅ ワークフローは正常に開始されました。"
 
-      # 2. チェックアウト
-      - uses: actions/checkout@v4
-
-      # 3. Gemini CLIの実行
-      - name: "Run Gemini CLI"
+      - name: "Run Gemini CLI with Direct Prompt"
         uses: google-github-actions/run-gemini-cli@v0
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          prompt: "これはテストです。正常に動作しているか確認してください。" # <-- 質問を直接指定
