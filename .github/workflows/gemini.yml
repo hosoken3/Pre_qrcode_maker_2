@@ -4,17 +4,13 @@ on:
     types: [created]
 
 jobs:
-  gemini-prompt-test:
+  gemini-final-test:
     runs-on: ubuntu-latest
     if: contains(github.event.comment.body, '@gemini-cli')
-    permissions:
-      issues: write # コメント書き込みに必要な権限
     steps:
-      - name: "Test: Workflow Triggered"
-        run: echo "✅ ワークフローは正常に開始されました。"
-
-      - name: "Run Gemini CLI with Direct Prompt"
-        uses: google-github-actions/run-gemini-cli@v0
-        with:
-          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          prompt: "これはテストです。正常に動作しているか確認してください。" # <-- 質問を直接指定
+      - name: "Test API Key with curl"
+        run: |
+          echo "--- APIキーを使って直接Googleのサーバーに問い合わせます ---"
+          curl -v "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${{ secrets.GEMINI_API_KEY }}" \
+            -H 'Content-Type: application/json' \
+            -d '{ "contents":[{"parts":[{"text": "こんにちは"}]}]}'
