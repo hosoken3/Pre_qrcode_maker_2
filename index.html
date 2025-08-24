@@ -1,0 +1,83 @@
+```html
+<!DOCTYPE html>
+<html>
+<head>
+<title>Gemini-CLI Web</title>
+<style>
+body {
+ font-family: sans-serif;
+}
+textarea {
+ width: 100%;
+ height: 200px;
+}
+</style>
+</head>
+<body>
+ <h1>Gemini-CLI Web</h1>
+ <textarea id="input"></textarea><br>
+ <button onclick="runGemini()">Run Gemini</button>
+ <div id="output"></div>
+
+ <script>
+ async function runGemini() {
+ const input = document.getElementById('input').value;
+ const outputDiv = document.getElementById('output');
+ outputDiv.innerHTML = "Running Gemini...<br>";
+
+ try {
+ const response = await fetch('/run', {
+ method: 'POST',
+ headers: {
+ 'Content-Type': 'application/json'
+ },
+ body: JSON.stringify({ input })
+ });
+
+ if (!response.ok) {
+ const errorData = await response.json();
+ outputDiv.innerHTML += `Error: ${errorData.error}`;
+ return;
+ }
+
+ const data = await response.json();
+ outputDiv.innerHTML += data.output;
+ } catch (error) {
+ outputDiv.innerHTML += `Error: ${error}`;
+ }
+ }
+ </script>
+</body>
+</html>
+```
+
+Filename: server.js
+```javascript
+const express = require('express');
+const { exec } = require('child_process');
+const app = express();
+const port = 3000;
+
+app.use(express.json());
+app.use(express.static('public'));
+
+app.post('/run', (req, res) => {
+ const input = req.body.input;
+ const command = `gemini --input "${input}"`; // Modify command as needed
+
+ exec(command, (error, stdout, stderr) => {
+ if (error) {
+ return res.status(500).json({ error: error.message });
+ }
+ if (stderr) {
+ return res.status(500).json({ error: stderr });
+ }
+ res.json({ output: stdout });
+ });
+});
+
+app.listen(port, () => {
+ console.log(`Server listening on port ${port}`);
+});
+
+```
